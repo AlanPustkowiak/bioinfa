@@ -14,11 +14,23 @@ def levenshtein(a, b):
             current[j] = min(add, delete, change)
     return current[n]
 
+def normalize_levenshtein(distance, original_len, reconstructed_len):
+    max_len = max(original_len, reconstructed_len)
+    return distance / max_len if max_len > 0 else 0.0
+
 if __name__ == "__main__":
     with open("dna.txt") as f:
         original = f.read().strip()
     with open("reconstructed.txt") as f:
         reconstructed = f.read().strip()
+    
     dist = levenshtein(original, reconstructed)
+    original_len = len(original)
+    reconstructed_len = len(reconstructed)
+    normalized = normalize_levenshtein(dist, original_len, reconstructed_len)
+    
     with open("levenshtein.txt", "w") as f:
         f.write(f"Levenshtein distance: {dist}\n")
+        f.write(f"Normalized distance: {normalized:.4f} ({normalized*100:.2f}%)\n")
+        f.write(f"Original DNA length: {original_len}\n")
+        f.write(f"Reconstructed DNA length: {reconstructed_len}\n")
