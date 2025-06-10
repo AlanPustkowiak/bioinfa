@@ -6,7 +6,7 @@ import time
 import os
 
 class SBHSolver:
-    def __init__(self, n, k, spectrum, start_oligo, negative_errors=0, positive_errors=0):
+    def __init__(self, n, k, spectrum, start_oligo, negative_errors=0, positive_errors=0, use_percentage=False, original_spectrum_size=None):
         """
         Inicjalizacja solvera SBH
         n: długość DNA do rekonstrukcji
@@ -20,8 +20,13 @@ class SBHSolver:
         self.k = k
         self.spectrum = spectrum
         self.start_oligo = start_oligo
-        self.negative_errors = negative_errors
-        self.positive_errors = positive_errors
+        if use_percentage and original_spectrum_size is not None:
+            self.negative_errors = max(0, int(original_spectrum_size * negative_errors))
+            self.positive_errors = max(0, int(original_spectrum_size * positive_errors))
+        else:
+            self.negative_errors = int(negative_errors)
+            self.positive_errors = int(positive_errors)
+
         
         # Parametry algorytmu mrówkowego
         self.num_ants = 20
@@ -369,24 +374,45 @@ def save_results(original_dna, reconstructed_dna, solver, filename_prefix="sbh_r
     print(f"Wyniki zapisane w katalogu 'results' z prefiksem '{filename_prefix}'")
 
 
-def main(seed=42, test_name="200"):
-    """Funkcja główna demonstrująca działanie algorytmu"""
-    print("=== REKONSTRUKCJA DNA METODĄ SBH Z ALGORYTMEM MRÓWKOWYM ===\n")
+def main(seed=42, test_name="default", custom_params=None, use_percentage_errors=False):
+    """
+    Funkcja główna z możliwością parametryzacji
+    
+    Args:
+        seed: Seed dla generatora liczb losowych (domyślnie 42)
+        test_name: Nazwa testu dla plików wynikowych
+        custom_params: Słownik z niestandardowymi parametrami algorytmu
+                      np. {'num_ants': 50, 'num_iterations': 200}
+    """
+    # Ustawienie seed dla reprodukowalności
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    print(f"=== TEST: {test_name.upper()} (SEED: {seed}) ===\n")
     
     # Parametry problemu
     n = 50  # długość DNA
     k = 7   # długość oligonukleotydów
-    negative_errors = 2
-    positive_errors = 3
+
+    if use_percentage_errors:
+        negative_errors_percent = 0.05  # 5%
+        positive_errors_percent = 0.05  # 7%
+    else:
+        negative_errors = 2
+        positive_errors = 3
     
     # Generuj testowe dane
     print("Generowanie danych testowych...")
     original_dna = generate_dna(n)
-    print(f"Oryginalne DNA: {original_dna}")
+    print(f"Oryginalne DNA (seed {seed}): {original_dna}")
     
     # Utwórz spektrum
     perfect_spectrum = create_spectrum(original_dna, k)
     print(f"Idealne spektrum zawiera {len(perfect_spectrum)} oligonukleotydów")
+
+    if use_percentage_errors:
+        negative_errors = max(0, int(len(perfect_spectrum) * negative_errors_percent))
+        positive_errors = max(0, int(len(perfect_spectrum) * positive_errors_percent))
     
     # Dodaj błędy
     spectrum_with_errors = add_positive_errors(perfect_spectrum, positive_errors, k)
@@ -402,9 +428,36 @@ def main(seed=42, test_name="200"):
     start_oligo = perfect_spectrum[0]  # Pierwszy oligonukleotyd z oryginalnego DNA
     print(f"Oligonukleotyd startowy: {start_oligo}")
     
-    # Rozwiąż problem
+    # Utwórz solver
     print("\n" + "="*60)
-    solver = SBHSolver(n, k, spectrum_with_errors, start_oligo, negative_errors, positive_errors)
+    
+    if use_percentage_errors:
+        solver = SBHSolver(n, k, spectrum_with_errors, start_oligo, 
+                        negative_errors_percent, positive_errors_percent,
+                        use_percentage=True, original_spectrum_size=len(perfect_spectrum))
+    else:
+        solver = SBHSolver(n, k, spectrum_with_errors, start_oligo, negative_errors, positive_errors)
+    
+    # Zastosuj niestandardowe parametry jeśli podane
+    if custom_params:
+        print("Zastosowane niestandardowe parametry:")
+        for param, value in custom_params.items():
+            if hasattr(solver, param):
+                setattr(solver, param, value)
+                print(f"- {param}: {value}")
+            else:
+                print(f"- UWAGA: Nieznany parametr '{param}' zostanie zignorowany")
+    
+    # Pokaż aktualne parametry algorytmu
+    print(f"\nParametry algorytmu mrówkowego:")
+    print(f"- Liczba mrówek: {solver.num_ants}")
+    print(f"- Liczba iteracji: {solver.num_iterations}")
+    print(f"- Alpha: {solver.alpha}")
+    print(f"- Beta: {solver.beta}")
+    print(f"- Rho: {solver.rho}")
+    print(f"- Q0: {solver.q0}")
+    
+    # Rozwiąż problem
     best_path, best_fitness = solver.solve()
     
     # Zrekonstruuj DNA
@@ -421,16 +474,95 @@ def main(seed=42, test_name="200"):
             accuracy = matches / max(len(original_dna), len(reconstructed_dna))
             print(f"Dokładność: {accuracy:.4f} ({matches}/{max(len(original_dna), len(reconstructed_dna))})")
         
-        # Zapisz wyniki
-        save_results(original_dna, reconstructed_dna, solver)
+        # Zapisz wyniki z odpowiednim prefiksem
+        filename_prefix = f"{test_name}_seed{seed}"
+        save_results(original_dna, reconstructed_dna, solver, filename_prefix)
         
     else:
         print("Nie udało się znaleźć rozwiązania!")
         reconstructed_dna = ""
-        save_results(original_dna, reconstructed_dna, solver)
+        filename_prefix = f"{test_name}_seed{seed}"
+        save_results(original_dna, reconstructed_dna, solver, filename_prefix)
+
+
+def run_iteration_tests():
+    """Funkcja do testowania różnych liczb iteracji na tym samym DNA"""
+    print("ROZPOCZYNAM TESTY LICZBY ITERACJI (SEED=42)")
+    print("="*70)
+    
+    iteration_configs = [
+        {'num_iterations': 50},
+        {'num_iterations': 100},
+        {'num_iterations': 150},
+        {'num_iterations': 200},
+        {'num_iterations': 300}
+    ]
+    
+    for i, config in enumerate(iteration_configs, 1):
+        print(f"\nTEST {i}/5: {config['num_iterations']} iteracji")
+        test_name = f"iterations_test_{config['num_iterations']}"
+        main(seed=42, test_name=test_name, custom_params=config)
+        print("-" * 50)
+
+
+def run_ants_tests():
+    """Funkcja do testowania różnych liczb mrówek na innym DNA"""
+    print("ROZPOCZYNAM TESTY LICZBY MRÓWEK (SEED=123)")
+    print("="*70)
+    
+    ants_configs = [
+        {'num_ants': 10},
+        {'num_ants': 20},
+        {'num_ants': 30},
+        {'num_ants': 50},
+        {'num_ants': 100}
+    ]
+    
+    for i, config in enumerate(ants_configs, 1):
+        print(f"\n🐜 TEST {i}/5: {config['num_ants']} mrówek")
+        test_name = f"ants_test_{config['num_ants']}"
+        main(seed=123, test_name=test_name, custom_params=config)
+        print("-" * 50)
+
+
+def run_alpha_beta_tests():
+    """Funkcja do testowania różnych parametrów alpha i beta na kolejnym DNA"""
+    print("ROZPOCZYNAM TESTY PARAMETRÓW ALPHA/BETA (SEED=456)")
+    print("="*70)
+    
+    alpha_beta_configs = [
+        {'alpha': 0.5, 'beta': 1.5},
+        {'alpha': 1.0, 'beta': 2.0},  # domyślne
+        {'alpha': 1.5, 'beta': 2.5},
+        {'alpha': 2.0, 'beta': 1.0},
+        {'alpha': 0.8, 'beta': 3.0}
+    ]
+    
+    for i, config in enumerate(alpha_beta_configs, 1):
+        print(f"\nTEST {i}/5: Alpha={config['alpha']}, Beta={config['beta']}")
+        test_name = f"alpha_beta_test_a{config['alpha']}_b{config['beta']}"
+        main(seed=456, test_name=test_name, custom_params=config)
+        print("-" * 50)
 
 
 if __name__ == "__main__":
-    random.seed(42)  # For reproducible results
-    np.random.seed(42)
-    main()
+    print("SYSTEM TESTOWANIA ALGORYTMU SBH Z ALGORYTMEM MRÓWKOWYM")
+    print("="*80)
+    
+    # Możesz uruchomić jeden z poniższych testów:
+    
+    # 1. Test podstawowy
+    main(seed=42, test_name="baseline")
+    
+    # 2. Testy liczby iteracji
+    # run_iteration_tests()
+    
+    # 3. Testy liczby mrówek
+    # run_ants_tests()
+    
+    # 4. Testy parametrów alpha/beta
+    # run_alpha_beta_tests()
+    
+    # 5. Pojedynczy test z niestandardowymi parametrami
+    # main(seed=789, test_name="custom_test", 
+    #      custom_params={'num_ants': 50, 'num_iterations': 200, 'alpha': 1.5})
